@@ -1,503 +1,384 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Trainee Photo Capture</title>
 
-  <!-- Person segmentation model -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"></script>
-
   <style>
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       padding: 18px;
       font-family: Arial, sans-serif;
-      color: #172033;
-      background: #f3f6fb;
+      background: #f4f6f8;
+      color: #222;
     }
-    main {
-      max-width: 650px;
+
+    .container {
+      max-width: 540px;
       margin: auto;
       padding: 20px;
       background: white;
-      border-radius: 14px;
-      box-shadow: 0 4px 18px #0001;
+      border-radius: 12px;
+      box-shadow: 0 3px 14px rgba(0,0,0,.10);
     }
-    h2 { text-align: center; margin-top: 4px; }
-    p { line-height: 1.5; }
-    label { display: block; margin: 14px 0 7px; font-weight: bold; }
-    select {
+
+    h2 {
+      margin-top: 0;
+      text-align: center;
+      color: #17365d;
+    }
+
+    video,
+    #photoPreview {
+      display: block;
       width: 100%;
-      padding: 10px;
-      border: 1px solid #cbd5e1;
-      border-radius: 7px;
-      background: white;
-    }
-    .photo-frame {
-      width: min(100%, 350px);
+      max-width: 350px;
       aspect-ratio: 7 / 9;
-      margin: 14px auto;
-      background: white;
-      border: 1px solid #d0d5dd;
-      overflow: hidden;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    video, #preview {
-      width: 100%;
-      height: 100%;
+      margin: 16px auto;
       object-fit: cover;
+      background: #ddd;
+      border-radius: 6px;
     }
-    #preview { display: none; }
-    .actions {
+
+    #photoPreview {
+      display: none;
+    }
+
+    .controls {
       display: flex;
-      justify-content: center;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 9px;
+      justify-content: center;
       margin-top: 14px;
     }
-    button {
+
+    button,
+    select {
+      padding: 11px 14px;
       border: 0;
-      border-radius: 7px;
-      padding: 12px 15px;
+      border-radius: 6px;
       font-size: 15px;
-      font-weight: bold;
+    }
+
+    button {
+      background: #1769aa;
+      color: white;
       cursor: pointer;
     }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    .blue { background: #155eef; color: white; }
-    .green { background: #067647; color: white; }
-    .gray { background: #e8eef7; color: #172033; }
+
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    .green {
+      background: #198754;
+    }
+
+    .gray {
+      background: #555;
+    }
+
+    select {
+      width: 100%;
+      border: 1px solid #bbb;
+      background: white;
+    }
+
     #status {
-      display: none;
-      padding: 12px;
-      margin-top: 14px;
-      border-radius: 7px;
+      text-align: center;
+      margin-top: 15px;
       line-height: 1.5;
       overflow-wrap: anywhere;
     }
-    .error { display: block !important; background: #fef3f2; color: #b42318; }
-    .success { display: block !important; background: #ecfdf3; color: #067647; }
-    .info { display: block !important; background: #eff8ff; color: #175cd3; }
-    .hint { color: #667085; font-size: 13px; }
+
+    .hint {
+      text-align: center;
+      color: #666;
+      font-size: 13px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 
 <body>
-<main>
-  <h2>Trainee Photo Capture</h2>
-  <p class="hint">
-    Face the camera, keep your head straight, use even lighting,
-    and leave some space above your head. The final photo will have
-    a white background and a 7:9 portrait crop.
-  </p>
+  <div class="container">
+    <h2>Trainee Photo Capture</h2>
 
-  <label for="cameraSelect">Camera</label>
-  <select id="cameraSelect">
-    <option value="">Default camera</option>
-  </select>
+    <label for="cameraSelect">Select Camera</label>
+    <select id="cameraSelect">
+      <option value="">Default camera</option>
+    </select>
 
-  <div class="photo-frame">
-    <video id="video" autoplay muted playsinline></video>
-    <img id="preview" alt="Processed passport-style trainee photo">
+    <video id="video" autoplay playsinline muted></video>
+
+    <canvas id="canvas" width="700" height="900" hidden></canvas>
+
+    <img id="photoPreview" alt="Captured trainee photograph">
+
+    <div class="controls" id="captureControls">
+      <button id="startButton" type="button">Start Camera</button>
+      <button id="captureButton" type="button" disabled>
+        Capture Photo
+      </button>
+    </div>
+
+    <div class="controls" id="previewControls" hidden>
+      <button id="retakeButton" class="gray" type="button">
+        Retake Photo
+      </button>
+      <button id="useButton" class="green" type="button">
+        Use This Photo
+      </button>
+    </div>
+
+    <p class="hint">
+      Position the face within the frame and ensure good lighting.
+      The original background will be retained.
+    </p>
+
+    <div id="status" role="status" aria-live="polite">
+      Select Start Camera to begin.
+    </div>
   </div>
 
-  <div class="actions">
-    <button id="startBtn" class="blue">Start Camera</button>
-    <button id="captureBtn" class="gray" disabled>Capture Photo</button>
-    <button id="retakeBtn" class="gray" hidden>Retake</button>
-    <button id="useBtn" class="green" disabled>Use This Photo</button>
-  </div>
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const preview = document.getElementById('photoPreview');
 
-  <div id="status" role="status" aria-live="polite"></div>
-</main>
+    const cameraSelect = document.getElementById('cameraSelect');
+    const startButton = document.getElementById('startButton');
+    const captureButton = document.getElementById('captureButton');
+    const retakeButton = document.getElementById('retakeButton');
+    const useButton = document.getElementById('useButton');
 
-<script>
-'use strict';
+    const captureControls = document.getElementById('captureControls');
+    const previewControls = document.getElementById('previewControls');
+    const status = document.getElementById('status');
 
-const video = document.getElementById('video');
-const preview = document.getElementById('preview');
-const cameraSelect = document.getElementById('cameraSelect');
-const startBtn = document.getElementById('startBtn');
-const captureBtn = document.getElementById('captureBtn');
-const retakeBtn = document.getElementById('retakeBtn');
-const useBtn = document.getElementById('useBtn');
-const statusBox = document.getElementById('status');
+    let stream = null;
+    let photoData = '';
 
-const OUT_W = 700;
-const OUT_H = 900;
-const MAX_JPEG_BYTES = 2 * 1024 * 1024;
-
-let stream = null;
-let photoData = null;
-let busy = false;
-let segmenter = null;
-let segmenterPromise = null;
-
-function showStatus(message, type) {
-  statusBox.textContent = message;
-  statusBox.className = type || 'info';
-}
-
-function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
-  video.pause();
-  video.srcObject = null;
-  captureBtn.disabled = true;
-}
-
-function explainError(error) {
-  const name = error && error.name;
-  if (name === 'NotAllowedError')
-    return 'Camera permission denied. Allow camera access for this GitHub Pages site in Chrome settings.';
-  if (name === 'NotFoundError')
-    return 'No camera detected. Connect or enable a webcam.';
-  if (name === 'NotReadableError')
-    return 'The camera may be in use by another application. Close Teams, Zoom, or Camera and retry.';
-  return 'Camera error: ' + (name || error.message || 'Unknown error');
-}
-
-async function refreshCameras() {
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameras = devices.filter(d => d.kind === 'videoinput');
-    const previous = cameraSelect.value;
-
-    cameraSelect.replaceChildren(new Option('Default camera', ''));
-    cameras.forEach((d, i) => {
-      cameraSelect.add(new Option(d.label || ('Camera ' + (i + 1)), d.deviceId));
-    });
-
-    if (cameras.some(d => d.deviceId === previous)) {
-      cameraSelect.value = previous;
-    }
-  } catch (e) {
-    // The default camera can still be used.
-  }
-}
-
-async function startCamera() {
-  if (busy) return;
-
-  stopCamera();
-  busy = true;
-  startBtn.disabled = true;
-  photoData = null;
-  preview.removeAttribute('src');
-  preview.style.display = 'none';
-  video.style.display = 'block';
-  retakeBtn.hidden = true;
-  useBtn.disabled = true;
-
-  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    showStatus('Open the published GitHub Pages HTTPS URL directly in Chrome.', 'error');
-    busy = false;
-    startBtn.disabled = false;
-    return;
-  }
-
-  try {
-    const id = cameraSelect.value;
-    const constraints = {
-      audio: false,
-      video: id ? { deviceId: { exact: id } } :
-        { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }
-    };
-
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (e) {
-      if (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError') throw e;
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: id ? { deviceId: { exact: id } } : true
-      });
+    function setStatus(message) {
+      status.textContent = message;
     }
 
-    video.srcObject = stream;
+    async function loadCameras() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(
+          device => device.kind === 'videoinput'
+        );
 
-    await new Promise((resolve, reject) => {
-      if (video.readyState >= 2 && video.videoWidth) return resolve();
+        const previousValue = cameraSelect.value;
+        cameraSelect.replaceChildren();
 
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error('Camera startup timed out.'));
-      }, 10000);
+        cameras.forEach((camera, index) => {
+          const option = document.createElement('option');
+          option.value = camera.deviceId;
+          option.textContent = camera.label || `Camera ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
 
-      function cleanup() {
-        clearTimeout(timeout);
-        video.removeEventListener('loadedmetadata', ready);
-        video.removeEventListener('error', failed);
-      }
-      function ready() {
-        if (video.videoWidth) {
-          cleanup();
-          resolve();
+        if (cameras.some(camera => camera.deviceId === previousValue)) {
+          cameraSelect.value = previousValue;
         }
+      } catch (error) {
+        console.warn('Unable to list cameras:', error);
       }
-      function failed() {
-        cleanup();
-        reject(new Error('Could not display the camera stream.'));
+    }
+
+    async function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
       }
 
-      video.addEventListener('loadedmetadata', ready);
-      video.addEventListener('error', failed);
-    });
+      video.srcObject = null;
+    }
 
-    await video.play();
-    captureBtn.disabled = false;
-    showStatus('Camera ready. Center the trainee’s face and shoulders.', 'success');
-    await refreshCameras();
-  } catch (e) {
-    stopCamera();
-    showStatus(explainError(e), 'error');
-  } finally {
-    busy = false;
-    startBtn.disabled = false;
-  }
-}
+    async function startCamera() {
+      try {
+        if (!navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia) {
+          throw new Error(
+            'Camera access is unavailable. Open this page using HTTPS.'
+          );
+        }
 
-// Load the segmentation model only when needed.
-async function getSegmenter() {
-  if (segmenter) return segmenter;
-  if (segmenterPromise) return segmenterPromise;
+        startButton.disabled = true;
+        captureButton.disabled = true;
+        setStatus('Starting camera…');
 
-  segmenterPromise = new Promise((resolve, reject) => {
-    try {
-      if (typeof SelfieSegmentation === 'undefined') {
-        reject(new Error('Background-removal library did not load. Check your internet connection and reload.'));
+        await stopCamera();
+
+        const deviceId = cameraSelect.value;
+
+        const constraints = {
+          audio: false,
+          video: {
+            ...(deviceId ? { deviceId: { exact: deviceId } }
+                         : { facingMode: 'user' }),
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+
+        await new Promise((resolve, reject) => {
+          if (video.readyState >= 2 && video.videoWidth) {
+            resolve();
+            return;
+          }
+
+          video.onloadedmetadata = () => resolve();
+          video.onerror = () => reject(
+            new Error('Unable to load the camera video.')
+          );
+        });
+
+        await video.play();
+        await loadCameras();
+
+        video.style.display = 'block';
+        preview.style.display = 'none';
+        captureControls.hidden = false;
+        previewControls.hidden = true;
+        captureButton.disabled = false;
+
+        setStatus('Camera ready. Position the face and capture the photo.');
+      } catch (error) {
+        console.error(error);
+        setStatus(
+          error.message ||
+          'Unable to access camera. Check camera permission and try again.'
+        );
+      } finally {
+        startButton.disabled = false;
+      }
+    }
+
+    function capturePhoto() {
+      if (!stream || !video.videoWidth || !video.videoHeight) {
+        setStatus('Please start the camera first.');
         return;
       }
 
-      const model = new SelfieSegmentation({
-        locateFile: file =>
-          'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + file
-      });
+      const sourceWidth = video.videoWidth;
+      const sourceHeight = video.videoHeight;
 
-      model.setOptions({ modelSelection: 1 });
+      // Center-crop to 7:9 portrait ratio without changing the background.
+      const targetRatio = 7 / 9;
+      const sourceRatio = sourceWidth / sourceHeight;
 
-      model.onResults(results => {
-        const callback = model._pendingCallback;
-        if (callback) {
-          model._pendingCallback = null;
-          callback(null, results);
+      let cropWidth;
+      let cropHeight;
+      let cropX;
+      let cropY;
+
+      if (sourceRatio > targetRatio) {
+        cropHeight = sourceHeight;
+        cropWidth = sourceHeight * targetRatio;
+        cropX = (sourceWidth - cropWidth) / 2;
+        cropY = 0;
+      } else {
+        cropWidth = sourceWidth;
+        cropHeight = sourceWidth / targetRatio;
+        cropX = 0;
+        cropY = (sourceHeight - cropHeight) / 2;
+      }
+
+      canvas.width = 700;
+      canvas.height = 900;
+
+      // Draw the original camera frame; no segmentation or background change.
+      ctx.drawImage(
+        video,
+        cropX, cropY, cropWidth, cropHeight,
+        0, 0, canvas.width, canvas.height
+      );
+
+      photoData = canvas.toDataURL('image/jpeg', 0.90);
+
+      preview.src = photoData;
+      preview.style.display = 'block';
+      video.style.display = 'none';
+
+      captureControls.hidden = true;
+      previewControls.hidden = false;
+
+      setStatus('Review the photo. Retake it or select Use This Photo.');
+    }
+
+    async function retakePhoto() {
+      photoData = '';
+      preview.removeAttribute('src');
+      preview.style.display = 'none';
+      video.style.display = 'block';
+
+      captureControls.hidden = false;
+      previewControls.hidden = true;
+
+      if (stream && stream.active) {
+        captureButton.disabled = false;
+        setStatus('Camera ready. Capture another photo.');
+      } else {
+        await startCamera();
+      }
+    }
+
+    async function usePhoto() {
+      if (!photoData) {
+        setStatus('Please capture a photo first.');
+        return;
+      }
+
+      useButton.disabled = true;
+      setStatus('Sending photo to the trainee form…');
+
+      try {
+        if (!window.opener || window.opener.closed) {
+          throw new Error(
+            'The trainee form is no longer open. Reopen the camera from the form.'
+          );
         }
-      });
 
-      model.initialize()
-        .then(() => {
-          segmenter = model;
-          resolve(model);
-        })
-        .catch(reject);
-    } catch (e) {
-      reject(e);
-    }
-  });
+        window.opener.postMessage(
+          {
+            type: 'PERSON_PHOTO_CAPTURED',
+            photo: photoData
+          },
+          '*'
+        );
 
-  try {
-    return await segmenterPromise;
-  } catch (e) {
-    segmenterPromise = null;
-    throw e;
-  }
-}
-
-async function segmentImage(source) {
-  const model = await getSegmenter();
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      model._pendingCallback = null;
-      reject(new Error('Background removal timed out. Try again with a stable internet connection.'));
-    }, 20000);
-
-    model._pendingCallback = (error, results) => {
-      clearTimeout(timeout);
-      if (error) reject(error);
-      else resolve(results);
-    };
-
-    model.send({ image: source }).catch(error => {
-      clearTimeout(timeout);
-      model._pendingCallback = null;
-      reject(error);
-    });
-  });
-}
-
-// Crop the center to portrait ratio and replace the background with white.
-async function makePassportPhoto(source) {
-  const results = await segmentImage(source);
-  const srcW = source.videoWidth || source.naturalWidth;
-  const srcH = source.videoHeight || source.naturalHeight;
-
-  if (!srcW || !srcH || !results.segmentationMask) {
-    throw new Error('The photo or segmentation mask is unavailable. Capture again.');
-  }
-
-  // Crop from the center to a 7:9 portrait ratio.
-  const targetRatio = OUT_W / OUT_H;
-  let sx = 0, sy = 0, sw = srcW, sh = srcH;
-
-  if (srcW / srcH > targetRatio) {
-    sw = srcH * targetRatio;
-    sx = (srcW - sw) / 2;
-  } else {
-    sh = srcW / targetRatio;
-    sy = Math.max(0, (srcH - sh) / 2);
-  }
-
-  const imageCanvas = document.createElement('canvas');
-  imageCanvas.width = OUT_W;
-  imageCanvas.height = OUT_H;
-  const imageCtx = imageCanvas.getContext('2d', { willReadFrequently: true });
-  imageCtx.drawImage(source, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
-
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = OUT_W;
-  maskCanvas.height = OUT_H;
-  const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-  maskCtx.drawImage(results.segmentationMask, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
-
-  // Turn the model's grayscale confidence mask into a transparent mask.
-  const maskPixels = maskCtx.getImageData(0, 0, OUT_W, OUT_H);
-  const px = maskPixels.data;
-
-  for (let i = 0; i < px.length; i += 4) {
-    const confidence = px[i]; // segmentation confidence, grayscale
-    px[i] = 255;
-    px[i + 1] = 255;
-    px[i + 2] = 255;
-    px[i + 3] = confidence > 128 ? 255 : 0;
-  }
-  maskCtx.putImageData(maskPixels, 0, 0);
-
-  // Apply the person mask to the cropped photo.
-  imageCtx.globalCompositeOperation = 'destination-in';
-  imageCtx.drawImage(maskCanvas, 0, 0);
-  imageCtx.globalCompositeOperation = 'source-over';
-
-  // Composite the isolated person onto pure white.
-  const finalCanvas = document.createElement('canvas');
-  finalCanvas.width = OUT_W;
-  finalCanvas.height = OUT_H;
-  const finalCtx = finalCanvas.getContext('2d');
-  finalCtx.fillStyle = '#ffffff';
-  finalCtx.fillRect(0, 0, OUT_W, OUT_H);
-  finalCtx.drawImage(imageCanvas, 0, 0);
-
-  return finalCanvas.toDataURL('image/jpeg', 0.84);
-}
-
-function blobSizeFromDataUrl(dataUrl) {
-  return Math.ceil((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75);
-}
-
-async function capturePhoto() {
-  if (!stream || !video.videoWidth || busy) {
-    showStatus('Start the camera and wait for the live image.', 'error');
-    return;
-  }
-
-  busy = true;
-  captureBtn.disabled = true;
-  startBtn.disabled = true;
-  showStatus('Processing portrait and replacing the background with white…', 'info');
-
-  try {
-    photoData = await makePassportPhoto(video);
-
-    // Reduce JPEG quality if the output is larger than the upload limit.
-    if (blobSizeFromDataUrl(photoData) > MAX_JPEG_BYTES) {
-      const img = new Image();
-      img.src = photoData;
-      await img.decode();
-
-      const canvas = document.createElement('canvas');
-      canvas.width = OUT_W;
-      canvas.height = OUT_H;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-
-      let quality = 0.72;
-      do {
-        photoData = canvas.toDataURL('image/jpeg', quality);
-        quality -= 0.08;
-      } while (blobSizeFromDataUrl(photoData) > MAX_JPEG_BYTES && quality > 0.4);
+        setStatus('Photo sent. You can return to the trainee form.');
+        await stopCamera();
+      } catch (error) {
+        setStatus(error.message || 'Unable to send the photo.');
+      } finally {
+        useButton.disabled = false;
+      }
     }
 
-    preview.src = photoData;
-    preview.style.display = 'block';
-    video.style.display = 'none';
-    stopCamera();
+    startButton.addEventListener('click', startCamera);
+    captureButton.addEventListener('click', capturePhoto);
+    retakeButton.addEventListener('click', retakePhoto);
+    useButton.addEventListener('click', usePhoto);
 
-    retakeBtn.hidden = false;
-    useBtn.disabled = false;
-    showStatus('White-background portrait ready. Check the face and edges before using it.', 'success');
-  } catch (e) {
-    showStatus(
-      'Photo processing failed: ' + (e.message || 'Unknown error') +
-      '. Check your internet connection and try again.',
-      'error'
-    );
-    captureBtn.disabled = false;
-  } finally {
-    busy = false;
-    startBtn.disabled = false;
-  }
-}
+    cameraSelect.addEventListener('change', startCamera);
 
-async function retakePhoto() {
-  photoData = null;
-  preview.removeAttribute('src');
-  preview.style.display = 'none';
-  video.style.display = 'block';
-  useBtn.disabled = true;
-  retakeBtn.hidden = true;
-  await startCamera();
-}
+    window.addEventListener('beforeunload', stopCamera);
 
-function usePhoto() {
-  if (!photoData) {
-    showStatus('Capture and review the photo first.', 'error');
-    return;
-  }
-
-  if (!window.opener || window.opener.closed) {
-    showStatus('The trainee form is not open. Reopen this camera from the form.', 'error');
-    return;
-  }
-
-  // The parent checks event.origin and the popup window reference.
-  window.opener.postMessage({
-    type: 'PERSON_PHOTO_CAPTURED',
-    dataUrl: photoData
-  }, '*');
-
-  useBtn.disabled = true;
-  showStatus('Photo sent to the trainee form.', 'success');
-  setTimeout(() => window.close(), 400);
-}
-
-startBtn.addEventListener('click', startCamera);
-captureBtn.addEventListener('click', capturePhoto);
-retakeBtn.addEventListener('click', retakePhoto);
-useBtn.addEventListener('click', usePhoto);
-cameraSelect.addEventListener('change', () => {
-  if (stream) startCamera();
-});
-window.addEventListener('pagehide', stopCamera);
-
-if (!window.isSecureContext) {
-  showStatus('Use the published HTTPS GitHub Pages URL.', 'error');
-}
-</script>
+    loadCameras();
+  </script>
 </body>
 </html>
