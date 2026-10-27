@@ -1,0 +1,343 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Person Photo Camera</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f3f6fb;
+      color: #172033;
+    }
+    main {
+      max-width: 700px;
+      margin: auto;
+      background: white;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 4px 18px #0001;
+    }
+    h2 { text-align: center; }
+    #cameraArea {
+      background: #101828;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    video, #preview {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    #preview { display: none; }
+    label { display: block; margin: 14px 0 7px; font-weight: bold; }
+    select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 7px;
+      border: 1px solid #cbd5e1;
+      background: white;
+    }
+    button {
+      padding: 12px 15px;
+      margin: 10px 5px 0 0;
+      border: 0;
+      border-radius: 7px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .blue { background: #155eef; color: white; }
+    .green { background: #067647; color: white; }
+    .gray { background: #e8eef7; color: #172033; }
+    #status {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      padding: 12px;
+      margin-top: 15px;
+      border-radius: 7px;
+      display: none;
+      line-height: 1.5;
+    }
+    .error { display: block !important; background: #fef3f2; color: #b42318; }
+    .success { display: block !important; background: #ecfdf3; color: #067647; }
+    .info { display: block !important; background: #eff8ff; color: #175cd3; }
+  </style>
+</head>
+
+<body>
+<main>
+  <h2>Camera Capture</h2>
+
+  <label for="cameraSelect">Choose camera</label>
+  <select id="cameraSelect">
+    <option value="">Default camera</option>
+  </select>
+
+  <div id="cameraArea" style="margin-top:12px">
+    <video id="video" autoplay muted playsinline></video>
+    <img id="preview" alt="Captured photograph">
+  </div>
+
+  <button id="startBtn" class="blue">Start Camera</button>
+  <button id="captureBtn" class="gray" disabled>Capture Photo</button>
+  <button id="retakeBtn" class="gray" hidden>Retake</button>
+  <button id="useBtn" class="green" disabled>Use This Photo</button>
+
+  <div id="status" role="status" aria-live="polite"></div>
+</main>
+
+<script>
+'use strict';
+
+const video = document.getElementById('video');
+const preview = document.getElementById('preview');
+const cameraSelect = document.getElementById('cameraSelect');
+const startBtn = document.getElementById('startBtn');
+const captureBtn = document.getElementById('captureBtn');
+const retakeBtn = document.getElementById('retakeBtn');
+const useBtn = document.getElementById('useBtn');
+const statusBox = document.getElementById('status');
+
+let stream = null;
+let photoData = null;
+let busy = false;
+
+function showStatus(message, type) {
+  statusBox.textContent = message;
+  statusBox.className = type || 'info';
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+  video.pause();
+  video.srcObject = null;
+  captureBtn.disabled = true;
+}
+
+function explainError(error) {
+  switch (error && error.name) {
+    case 'NotAllowedError':
+      return 'Camera permission denied. Allow camera access for this GitHub Pages website in Chrome site settings.';
+    case 'NotFoundError':
+      return 'No camera detected. Connect or enable a webcam.';
+    case 'NotReadableError':
+      return 'Camera is busy or unavailable. Close Teams, Zoom, or other camera applications.';
+    case 'OverconstrainedError':
+      return 'That camera could not be selected. Choose Default camera and try again.';
+    case 'SecurityError':
+      return 'Camera access is blocked by browser security settings. Open this HTTPS page directly.';
+    default:
+      return 'Could not start camera: ' +
+        ((error && error.name) || 'Unknown error') +
+        '. Check browser permissions and webcam connection.';
+  }
+}
+
+async function refreshCameras() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(device => device.kind === 'videoinput');
+    const selected = cameraSelect.value;
+
+    cameraSelect.replaceChildren(new Option('Default camera', ''));
+
+    cameras.forEach((camera, i) => {
+      cameraSelect.add(new Option(
+        camera.label || ('Camera ' + (i + 1)),
+        camera.deviceId
+      ));
+    });
+
+    if (cameras.some(camera => camera.deviceId === selected)) {
+      cameraSelect.value = selected;
+    }
+  } catch (error) {
+    // Camera selection is optional; default-camera access may still work.
+  }
+}
+
+async function startCamera() {
+  if (busy) return;
+
+  stopCamera();
+  photoData = null;
+  preview.removeAttribute('src');
+  preview.style.display = 'none';
+  video.style.display = 'block';
+  retakeBtn.hidden = true;
+  useBtn.disabled = true;
+  startBtn.disabled = true;
+  busy = true;
+
+  if (!window.isSecureContext || !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia) {
+    showStatus('Open the published GitHub Pages HTTPS address directly in Chrome.', 'error');
+    busy = false;
+    startBtn.disabled = false;
+    return;
+  }
+
+  try {
+    const deviceId = cameraSelect.value;
+    const constraints = {
+      audio: false,
+      video: deviceId
+        ? { deviceId: { exact: deviceId } }
+        : { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }
+    };
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      if (error.name === 'OverconstrainedError' ||
+          error.name === 'NotFoundError') {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: deviceId ? { deviceId: { exact: deviceId } } : true
+        });
+      } else {
+        throw error;
+      }
+    }
+
+    video.srcObject = stream;
+
+    await new Promise((resolve, reject) => {
+      if (video.readyState >= 2 && video.videoWidth) {
+        resolve();
+        return;
+      }
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Camera video timed out.'));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        video.removeEventListener('loadedmetadata', ready);
+        video.removeEventListener('error', failed);
+      }
+      function ready() {
+        if (video.videoWidth) {
+          cleanup();
+          resolve();
+        }
+      }
+      function failed() {
+        cleanup();
+        reject(new Error('Could not display the camera video.'));
+      }
+
+      video.addEventListener('loadedmetadata', ready);
+      video.addEventListener('error', failed);
+    });
+
+    await video.play();
+    captureBtn.disabled = false;
+    showStatus('Camera ready. Position the person and capture the photo.', 'success');
+    await refreshCameras();
+  } catch (error) {
+    stopCamera();
+    showStatus(explainError(error), 'error');
+  } finally {
+    busy = false;
+    startBtn.disabled = false;
+  }
+}
+
+function capturePhoto() {
+  if (!stream || !video.videoWidth) {
+    showStatus('Start the camera and wait for the live picture.', 'error');
+    return;
+  }
+
+  const canvas = document.createElement('canvas');
+  const scale = Math.min(1, 1600 / video.videoWidth);
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    showStatus('Unable to prepare the photo. Try again.', 'error');
+    return;
+  }
+
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  photoData = canvas.toDataURL('image/jpeg', 0.88);
+
+  preview.src = photoData;
+  preview.style.display = 'block';
+  video.style.display = 'none';
+
+  stopCamera();
+  captureBtn.disabled = true;
+  retakeBtn.hidden = false;
+  useBtn.disabled = false;
+  showStatus('Review the photo. Choose Retake or Use This Photo.', 'success');
+}
+
+async function retakePhoto() {
+  photoData = null;
+  preview.removeAttribute('src');
+  preview.style.display = 'none';
+  video.style.display = 'block';
+  useBtn.disabled = true;
+  await startCamera();
+}
+
+function sendPhotoToParent() {
+  if (!photoData) {
+    showStatus('Capture a photo first.', 'error');
+    return;
+  }
+
+  if (!window.opener || window.opener.closed) {
+    showStatus(
+      'The parent form is not available. Reopen this camera using the Open Camera button on the Apps Script form.',
+      'error'
+    );
+    return;
+  }
+
+  // The parent validates both this origin and the popup window reference.
+  window.opener.postMessage({
+    type: 'PERSON_PHOTO_CAPTURED',
+    dataUrl: photoData
+  }, '*');
+
+  showStatus('Photo sent to the form. You may close this window.', 'success');
+  useBtn.disabled = true;
+  setTimeout(() => window.close(), 400);
+}
+
+startBtn.addEventListener('click', startCamera);
+captureBtn.addEventListener('click', capturePhoto);
+retakeBtn.addEventListener('click', retakePhoto);
+useBtn.addEventListener('click', sendPhotoToParent);
+
+cameraSelect.addEventListener('change', () => {
+  if (stream) startCamera();
+});
+
+window.addEventListener('pagehide', stopCamera);
+
+if (!window.isSecureContext) {
+  showStatus('This page requires HTTPS. Use the published GitHub Pages URL.', 'error');
+}
+</script>
+</body>
+</html>
